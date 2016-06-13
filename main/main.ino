@@ -1,13 +1,15 @@
-/*  Clapclap_Lifx v0.1
+/*  Clapclap_Lifx v0.2
  *  
- *  Detect one or two claps, do something if two claps are heard by microphone
+ *  Detect number of claps with some filters to avoid random detection problems
  *  
- *  TBD : Filter if more than two claps
- *        Improve detection, gap between claps
+ *  Changelog : Give up interrupts method because of too much strange problems
+ *              Re-written with common methods, works well
  *  
- *  Components : Microphone KY-038 || Blue LED (cause it is classy)
+ *  TBD : Better filters
  *  
- *  Date : 30 May 2016
+ *  Components : Microphone KY-038 || Buzzer || Blue LED (cause it is classy)
+ *  
+ *  Date : 10 June 2016
  *  by Florent Dupont
  */
 
@@ -16,19 +18,22 @@
 int led = 3;
 
 int digitalMic = 2;
-int analogMic = A0;
+int analogMic = A0;   // useless ?
+
+int buzzer = 6;
+
 
 
 // Stuff
-int intensity = 75;
+double detectionTimeLimit = 500;    // Time before stopping between-clap listening
+double clapDurationLimit = 1000;    // Time before stopping between-clap listening
+bool overtime = false;
 
-bool activation1 = false;
-bool activation2 = false;
-bool acknowledgement = false;
+int n = 0;
 
 
-// ---------------------------- SETUP ----------------------------
-void setup() 
+// --------------- Initialization ---------------
+void setup()
 {
   // Initializing Serial
   Serial.begin(9600);
@@ -38,111 +43,106 @@ void setup()
   pinMode(digitalMic, INPUT);
   pinMode(led, OUTPUT);
 
-  // Inizializing interrupts
-  attachInterrupt(digitalPinToInterrupt(2), initializingInterrupt2, RISING);
-  attachInterrupt(digitalPinToInterrupt(2), initializingInterrupt1, RISING);
+  pinMode(buzzer, OUTPUT);
 
   Serial.println("--------------------- Debut du programme ---------------------");
 }
 
 
-// ---------------------------- LOOP ----------------------------
+// --------------- Loop function ---------------
 void loop()
 {
-  // If first clap
-  if(activation1 == true)
-  {
-    activation1 = false;
-    Serial.println("1er signal !");         // ---TBR---
-    long beginTime = millis();
-    Serial.println("delay ...");            // ---TBR---
-    asyncDelay(200);
-    Serial.println("interrup 2 enabled");   // ---TBR---
-    attachInterrupt(digitalPinToInterrupt(2), initializingInterrupt2, RISING);
-    //attachInterrupt(digitalPinToInterrupt(2), secondActivation, RISING);
-
-    Serial.println("wait for signal 2..."); // ---TBR---
-    long checkPoint = millis();
-    while(millis() - checkPoint <= 750)
-    {
-      // If second clap
-      if(activation2 == true)
-      {
-        activation2 = false;
-        Serial.println("2e signal !");      // ---TBR---
   
-        for(int i = 0 ; i<3 ; i++)
+  if(clapClean())
+  {
+    n = clapCounter(1);
+
+    Serial.print("Valeur de n : ");
+    Serial.println(n);
+  }
+
+  if(!overtime)
+  {
+    if(n == 2)
+    {
+      buzzOk();
+    }
+
+    for(n ; n>0 ; n--)
+    {
+      analogWrite(led, 90);
+      delay(100);
+      analogWrite(led, 0);
+      delay(100);
+    }
+  }
+  else
+  {
+    Serial.println("OVERTIME !");
+    analogWrite(led, 90);
+    delay(clapDurationLimit);
+    analogWrite(led, 0);
+  }
+
+  // reset
+  overtime = false;
+  n == 0;
+}
+
+
+// --------------- Other functions ---------------
+int clapCounter(int m)
+{
+  Serial.println(m);
+  double detectionTime = millis();
+  while(millis() - detectionTime < detectionTimeLimit)
+  {
+    if(clapClean())
+    {
+      m++;
+      m = clapCounter(m);
+    }
+  }
+  return m;
+}
+
+
+void buzzOk()
+{
+  tone(buzzer, 500, 100);
+  delay(200);
+  tone(buzzer, 1000, 200);
+  delay(400);
+}
+
+
+int clapClean()
+{
+  if(digitalRead(2))
+  {
+    double beginTime = millis();  // temps de détection
+    int mode = 1;
+    while(mode == 1)
+    {
+      double beginTimeInside = millis();  
+      while(millis() - beginTimeInside <= 50)
+      {
+        if(millis() - beginTime > clapDurationLimit)
         {
-          intensity = 75;
-          analogWrite(led, intensity);  
-          long beginTime = millis();
-          while(millis() - beginTime <= 500)
-          {
-            if(intensity >= 0)
-            {
-              analogWrite(led, intensity);
-              intensity--;
-              asyncDelay(5);
-            }
-          }
+          mode = 0;
+          overtime = true;
+          return false;
         }
-        intensity = 75;
-        analogWrite(led, intensity); 
+        if(digitalRead(2))
+        {
+          mode = 1;
+          break;
+        }
+        mode = 0;
       }
     }
-    Serial.println("interrup 1 enabled");     // ---TBR---
-    attachInterrupt(digitalPinToInterrupt(2), initializingInterrupt1, RISING);
-    activation1, activation2 = false;
+    return true;
   }
-
-
-  // Everytime, fade the LED
-  while(intensity >= 0)
-  {
-    analogWrite(led, intensity);
-    intensity--;
-    asyncDelay(2);
-  }
+  else
+    return false;
 }
-
-
-// ---------------------------- Interrupts methods ----------------------------
-void initializingInterrupt1()
-{
-  detachInterrupt(digitalPinToInterrupt(2));    // detach both interrupts
-  attachInterrupt(digitalPinToInterrupt(2), firstActivation, RISING);
-}
-
-void initializingInterrupt2()
-{
-  detachInterrupt(digitalPinToInterrupt(2));    // detach both interrupts
-  attachInterrupt(digitalPinToInterrupt(2), secondActivation, RISING);
-}
-
-void firstActivation()
-{
-  Serial.println("interrup 1 disabled");        // ---TBR---
-  detachInterrupt(digitalPinToInterrupt(2));    // detach interrupt 1
-  activation1 = true;
-  intensity = 125;
-  analogWrite(led, intensity);
-}
-
-void secondActivation()
-{
-  Serial.println("interrup 2 disabled");        // ---TBR---
-  detachInterrupt(digitalPinToInterrupt(2));    // detach interrupt 2
-  activation2 = true;
-  intensity = 75;
-  analogWrite(led, intensity);  
-}
-
-
-// ---------------------------- Others methods ----------------------------
-void asyncDelay(long msDelay)
-{
-  long beginTimeAsync = millis();
-  while(millis() - beginTimeAsync <= msDelay)
-  {}
-}
-
