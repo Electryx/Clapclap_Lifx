@@ -1,16 +1,14 @@
-/*  Clapclap_Lifx v0.3
+/*  Clapclap_Lifx v0.4
  *  
  *  Detect number of claps with some filters to avoid random detection problems
  *  
- *  Changelog : Limit claps number to 5 to avoid constant detection bug
- *              Finally use analogic output for better detection stability
- *              Add Debug mode with Serial debugging messages, possibility to disable it
+ *  Changelog : Adjust threshold in runtime (don't need to change microphone potentiometer anymore)
  *  
  *  TBD : Add wireless communication
  *  
- *  Components : Microphone KY-038 || Buzzer || Blue LED (cause it is classy)
+ *  Components : Arduino Nano || Microphone KY-038 || Buzzer || Blue LED
  *  
- *  Date : 13 October 2016
+ *  Date : 09 November 2016
  *  by Florent Dupont
  */
 
@@ -33,6 +31,9 @@ bool overtime = false;
 bool DEBUGMODE = true;
 
 int n = 0;
+
+int savedValues[10] = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1};
+int threshold = 1000;               // instantiate to unreachable value while mean is not ready
 // --------------------------------------------
 
 
@@ -49,7 +50,7 @@ void setup()
 
   pinMode(buzzer, OUTPUT);
 
-  printlnMessage("--------------------- Debut du programme ---------------------");
+  printlnMessage("--------------------- Start ---------------------");
 }
 // --------------------------------------------
 
@@ -142,7 +143,7 @@ int clapClean()
 {
   if(getMicroValue())
   {
-    double beginTime = millis();      // temps de détection
+    double beginTime = millis();      // detection time
     int mode = 1;
     while(mode == 1)
     {
@@ -151,7 +152,7 @@ int clapClean()
       // overtime detection algorithm
       while(millis() - beginTimeInside <= 50)           // while sound is detected within 50 milliseconds
       {
-        if(millis() - beginTime > clapDurationLimit)    // if it is during for more than 500 milliseconds, stop clap detection
+        if(millis() - beginTime > clapDurationLimit)    // if sound last for more than 1000 milliseconds, stop clap detection
         {
           mode = 0;
           overtime = true;
@@ -171,11 +172,37 @@ int clapClean()
     return false;
 }
 
+
 int getMicroValue()
 {
   printlnMessage(analogRead(A0));
-  return (analogRead(A0) > 545);
+
+  adjustThreshold();
+
+  return (analogRead(A0) > threshold);
 }
+
+
+void adjustThreshold()
+{
+  int mean = 0;                         // mean reset
+  mean += savedValues[0];               // oldest value save
+  for(int i=1 ; i<10 ; i++)
+  {
+    savedValues[i-1] = savedValues[i];  // list shift
+    mean += savedValues[i];             // add newest values to mean
+  }
+  mean = mean/10;                       // calculate mean
+  savedValues[9] = analogRead(A0);      // save newest value at array's last position
+  
+  if(savedValues[0] != -1)              // if 10 values or more are saved, begin threshold algorithm
+  {
+    printMessage("Threshold = ");
+    printlnMessage(threshold);
+    threshold = mean + 2;               // threshold refresh
+  }
+}
+
 
 void printMessage(String message)
 {
