@@ -1,38 +1,37 @@
-/*  Clapclap_Lifx v0.4
+/*  Clapclap_Lifx v0.5
  *  
  *  Detect number of claps with some filters to avoid random detection problems
  *  
- *  Changelog : Adjust threshold in runtime (don't need to change microphone potentiometer anymore)
+ *  Changelog : Optimized threshold adjustement
  *  
  *  TBD : Add wireless communication
+ *        Debug the debug mode
  *  
  *  Components : Arduino Nano || Microphone KY-038 || Buzzer || Blue LED
  *  
- *  Date : 09 November 2016
+ *  Date : 04 January 2017
  *  by Florent Dupont
  */
 
 
 // --------------- Declarations ---------------
-int led = 3;
-
-int digitalMic = 2;
-int analogMic = A0;   // usefull !
-
+int led = 13;
+int analogMic = A0;
 int buzzer = 6;
 
 
-
 // Stuff
-double detectionTimeLimit = 500;    // Time before stopping between-clap listening
-double clapDurationLimit = 1000;    // Time before stopping between-clap listening
+#define detectionTimeLimit 500      // Time before stopping between-clap listening
+#define clapDurationLimit 1000      // Time before stopping between-clap listening
 bool overtime = false;
 
-bool DEBUGMODE = true;
+#define DEBUGMODE false             // WARNING : setting to true cause serial communication to slow algorithm and breaks detection
 
 int n = 0;
 
 int savedValues[10] = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1};
+int count = 0;
+int mean = 0;
 int threshold = 1000;               // instantiate to unreachable value while mean is not ready
 // --------------------------------------------
 
@@ -41,11 +40,10 @@ int threshold = 1000;               // instantiate to unreachable value while me
 void setup()
 {
   // Initializing Serial
-  Serial.begin(115200);
+  Serial.begin(9600);
 
   // Setting up I/O
   pinMode(analogMic, INPUT);
-  pinMode(digitalMic, INPUT);
   pinMode(led, OUTPUT);
 
   pinMode(buzzer, OUTPUT);
@@ -75,16 +73,14 @@ void loop()
 
       for(n ; n>0 ; n--)    // LED blinking
       {
-        analogWrite(led, 90);
+        digitalWrite(led, HIGH);
         delay(100);
-        analogWrite(led, 0);
+        digitalWrite(led, LOW);
         delay(100);
       }
     }
     else if(n >= 5)
-    {
       buzzNotOk();
-    }
   }
   else                // if overtime detection
   {
@@ -99,13 +95,12 @@ void loop()
 // --------------------------------------------
 
 
-// --------------- Function library ---------------
+// -------------- Methods library -------------
 int clapCounter(int m)
 {
   printlnMessage(m);
   double detectionTime = millis();
   while(millis() - detectionTime < detectionTimeLimit)
-  {
     if(clapClean())
     {
       m++;
@@ -113,7 +108,6 @@ int clapCounter(int m)
         return m;
       m = clapCounter(m);
     }
-  }
   return m;
 }
 
@@ -128,14 +122,14 @@ void buzzOk()
 
 void buzzNotOk()
 {
-  analogWrite(led, 90);
+  digitalWrite(led, HIGH);
   tone(buzzer, 300, 100);
   delay(200);
   tone(buzzer, 300, 100);
   delay(200);
   tone(buzzer, 300, 100);
   delay(200);
-  analogWrite(led, 0);
+  digitalWrite(led, LOW);
 }
 
 
@@ -185,23 +179,28 @@ int getMicroValue()
 
 void adjustThreshold()
 {
-  int mean = 0;                         // mean reset
-  mean += savedValues[0];               // oldest value save
-  for(int i=1 ; i<10 ; i++)
+  if (savedValues[9] == -1)                 // while array isn't full, can't reach threshold
   {
-    savedValues[i-1] = savedValues[i];  // list shift
-    mean += savedValues[i];             // add newest values to mean
+    savedValues[count] = analogRead(A0);
+    mean += savedValues[count];
   }
-  mean = mean/10;                       // calculate mean
-  savedValues[9] = analogRead(A0);      // save newest value at array's last position
-  
-  if(savedValues[0] != -1)              // if 10 values or more are saved, begin threshold algorithm
+  else
   {
+    mean -= savedValues[count];             // switch oldest value with the new one
+    savedValues[count] = analogRead(A0);
+    mean += savedValues[count];
+
     printMessage("Threshold = ");
     printlnMessage(threshold);
-    threshold = mean + 2;               // threshold refresh
+    threshold = (mean/10) + 2;               // threshold refresh
   }
+
+  if(count < 9)
+    count++;
+  else
+    count = 0;
 }
+
 
 
 void printMessage(String message)
