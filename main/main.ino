@@ -1,18 +1,18 @@
-/*  Clapclap_Lifx v1.0
+/*  Clapclap_Lifx v1.1
  *  
  *  Detect number of claps to turn on/off a Lifx bulb
  *  
- *  Changelog : Added Wi-Fi communication
- *              Added buzzer switch mode
+ *  Changelog : Add brighness options with 3/4/5 claps
+ *              Code improvements
  *  
  *  TBD : Debug the debug mode
- *        Add more light modes depending on clap number
  *        Get time when ESP is wireless ready instead of waiting 5 seconds
+ *        Flash ESP to set at 9600 bauds
  *  
  *  Components :  Arduino Nano || Breadboard Power Supply || ESP8266 ESP-01 || Microphone KY-038
  *                Voltage regulator 5V-3.3V || 2 PNP transistors || Buzzer || Blue LED
  *  
- *  Date : 05 January 2017
+ *  Date : 11 January 2017
  *  by Florent Dupont
  */
 
@@ -20,9 +20,9 @@
 #include <SoftwareSerial.h>
 
 
-// --------------- Declarations ---------------
-#define DEBUGMODE false                 // WARNING : setting to true cause serial communication to slow algorithm and breaks detection
-#define NOISYMODE false                 // to turn on/off buzzer sound
+// ------------------------------ Declarations ------------------------------
+#define DEBUGMODE false                  // WARNING : setting to true cause serial communication to slow algorithm and breaks detection
+#define NOISYMODE false                  // to turn on/off buzzer sound
 
 int led = 13;
 int analogMic = A0;
@@ -32,7 +32,7 @@ int buzzer = 9;
 SoftwareSerial ESP(2, 3);               // initialize serial communication through pin 2/RX and 3/TX
 #define baudrate 9600                   // SoftwareSerial is stable only at 9600 bauds on serial communication
 int resetPin = 5;
-bool bulbState = false;
+bool bulbState = false;                 // bulb have to be set OFF when initializing soft
 
 #define detectionTimeLimit 500          // Time before stopping between-clap listening
 #define clapDurationLimit 1000          // Time before stopping between-clap listening
@@ -43,11 +43,19 @@ int n = 0;
 int savedValues[10] = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1};
 int count = 0;
 int mean = 0;
-int threshold = 1000;                   // instantiate to unreachable value while mean is not ready
-// --------------------------------------------
+int threshold = 1025;                   // instantiate to unreachable value while mean is not ready
+
+// ASCII messages
+const char power1[] = {49, 0, 0, 52, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 102, 0, 0, 0, 0, 0, 0, 0, 0, 255, 63, 172, 13, 0, 4, 0, 0};
+const char power2[] = {49, 0, 0, 52, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 102, 0, 0, 0, 0, 0, 0, 0, 0, 255, 127, 172, 13, 0, 4, 0, 0};
+const char power3[] = {49, 0, 0, 52, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 102, 0, 0, 0, 0, 0, 0, 0, 0, 255, 255, 172, 13, 0, 4, 0, 0};
+
+const char turnON[] = {42, 0, 0, 52, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 117, 0, 0, 0, 0, 255, 255, 4, 0, 0};
+const char turnOFF[] = {42, 0, 0, 52, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 117, 0, 0, 0, 0, 0, 0, 4, 0, 0};
+// --------------------------------------------------------------------------
 
 
-// -------------- Initialization --------------
+// ----------------------------- Initialization -----------------------------
 void setup()
 {
   if(DEBUGMODE) Serial.begin(115200);   // start serial communications at 115200 bauds, required because ESP restarts at 115200 bauds
@@ -81,10 +89,10 @@ void setup()
   
   printlnMessage("ESP ready");
 }
-// --------------------------------------------
+// --------------------------------------------------------------------------
 
 
-// --------------- Loop function --------------
+// ------------------------------ Loop function -----------------------------
 void loop()
 {
   if(DEBUGMODE)
@@ -110,13 +118,22 @@ void loop()
   
   if(!overtime)           // if no overtime detection
   {
-    if(n == 2 && n < 5)
+    switch(n)
     {
-      executeOrder66();
-      
-      buzzOk();
+      case 2 :  executeOrder66();
+                buzzOk();
+                break;
+      case 3 :  changeBrightness(1);
+                buzzOk();
+                break;
+      case 4 :  changeBrightness(2);
+                buzzOk();
+                break;
+      case 5 :  changeBrightness(3);
+                buzzOk();
+                break;
     }
-    else if(n >= 5)
+    if(n > 5)
       buzzNotOk();
   }
   else                    // if overtime detection
@@ -129,10 +146,10 @@ void loop()
   overtime = false;
   n = 0;
 }
-// --------------------------------------------
+// --------------------------------------------------------------------------
 
 
-// -------------- Methods library -------------
+// ----------------------------- Methods library ----------------------------
 int clapCounter(int m)
 {
   printlnMessage(m);
@@ -318,6 +335,7 @@ void sendToESP(String command, int timeout)
     }
 }
 
+
 void waitESPReaction(int timeout)
 {
   double timein = millis();
@@ -326,6 +344,7 @@ void waitESPReaction(int timeout)
     if(ESP.available())
       Serial.write( ESP.read() );
 }
+
 
 void waitESPAcknowledgement(short timeout)
 {
@@ -352,30 +371,45 @@ void waitESPAcknowledgement(short timeout)
     }
 }
 
+
+void changeBrightness(char power)
+{
+  sendToESP("AT+CIPSEND=49", 1000);
+
+  switch(power)
+  {
+    case 1: for(int i=0 ; i<sizeof(power1) ; i++)
+              ESP.print(power1[i]);
+            break;
+    case 2: for(int i=0 ; i<sizeof(power2) ; i++)
+              ESP.print(power2[i]);
+            break;
+    case 3: for(int i=0 ; i<sizeof(power3) ; i++)
+              ESP.print(power3[i]);
+            break;
+  }
+  waitESPAcknowledgement(1024);
+    
+  if(!bulbState)        // if bulb is OFF, turn it ON
+    executeOrder66();   
+}
+
+
 void executeOrder66()
 {
-  //ESP.println("AT+CIPSEND=49");   // change color to green (exemple)
   sendToESP("AT+CIPSEND=42", 1000);
-
-  //char changeToGreen[] = {49, 0, 0, 52, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 102, 0, 0, 0, 0, 85, 85, 255, 255, 255, 255, 172, 13, 0, 4, 0, 0};
-  char turnON[] = {42, 0, 0, 52, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 117, 0, 0, 0, 0, 255, 255, 4, 0, 0};
-  char turnOFF[] = {42, 0, 0, 52, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 117, 0, 0, 0, 0, 0, 0, 4, 0, 0};
 
   if(!bulbState)
   {
-    for(int i = 0 ; i < sizeof(turnON) ; i++)
-    {
+    for(int i=0 ; i<sizeof(turnON) ; i++)
       ESP.print(turnON[i]);
-    }
     bulbState = true;
     digitalWrite(led, HIGH);
   }
   else
   {
     for(int i = 0 ; i < sizeof(turnOFF) ; i++)
-    {
       ESP.print(turnOFF[i]);
-    }
     bulbState = false;
     digitalWrite(led, LOW);
   }
